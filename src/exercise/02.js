@@ -14,16 +14,13 @@ import {
 function pokemonInfoReducer(state, action) {
   switch (action.type) {
     case 'pending': {
-      // 🐨 replace "pokemon" with "data"
-      return {status: 'pending', pokemon: null, error: null}
+      return {...state, status: 'pending', data: null, error: null}
     }
     case 'resolved': {
-      // 🐨 replace "pokemon" with "data" (in the action too!)
-      return {status: 'resolved', pokemon: action.pokemon, error: null}
+      return {...state, status: 'resolved', data: action.data, error: null}
     }
     case 'rejected': {
-      // 🐨 replace "pokemon" with "data"
-      return {status: 'rejected', pokemon: null, error: action.error}
+      return {...state, status: 'rejected', data: null, error: action.error}
     }
     default: {
       throw new Error(`Unhandled action type: ${action.type}`)
@@ -31,53 +28,47 @@ function pokemonInfoReducer(state, action) {
   }
 }
 
-function PokemonInfo({pokemonName}) {
-  // 🐨 move both the useReducer and useEffect hooks to a custom hook called useAsync
-  // here's how you use it:
-  // const state = useAsync(
-  //   () => {
-  //     if (!pokemonName) {
-  //       return
-  //     }
-  //     return fetchPokemon(pokemonName)
-  //   },
-  //   {status: pokemonName ? 'pending' : 'idle'},
-  //   [pokemonName],
-  // )
-  // 🐨 so your job is to create a useAsync function that makes this work.
+function useAsync(initialState, abort) {
   const [state, dispatch] = React.useReducer(pokemonInfoReducer, {
-    status: pokemonName ? 'pending' : 'idle',
-    // 🐨 this will need to be "data" instead of "pokemon"
-    pokemon: null,
+    data: null,
     error: null,
+    ...initialState,
   })
 
-  React.useEffect(() => {
-    // 💰 this first early-exit bit is a little tricky, so let me give you a hint:
-    // const promise = asyncCallback()
-    // if (!promise) {
-    //   return
-    // }
-    // then you can dispatch and handle the promise etc...
-    if (!pokemonName) {
-      return
+  const run = React.useCallback((promise) => { 
+    if (!promise) {
+      return;
     }
+    
     dispatch({type: 'pending'})
-    fetchPokemon(pokemonName).then(
-      pokemon => {
-        dispatch({type: 'resolved', pokemon})
-      },
-      error => {
-        dispatch({type: 'rejected', error})
-      },
-    )
-    // 🐨 you'll accept dependencies as an array and pass that here.
-    // 🐨 because of limitations with ESLint, you'll need to ignore
-    // the react-hooks/exhaustive-deps rule. We'll fix this in an extra credit.
-  }, [pokemonName])
 
-  // 🐨 this will change from "pokemon" to "data"
-  const {pokemon, status, error} = state
+    if (!abort) {
+      promise.then(
+        pokemon => {
+          dispatch({type: 'resolved', data: pokemon})
+        },
+        error => {
+          dispatch({type: 'rejected', error})
+        },
+      )
+    }
+  }, [abort]);
+
+  return { ...state, run};
+}
+
+function PokemonInfo({pokemonName, abort}) {
+  const {data, status, error, run} = useAsync({
+    status: pokemonName ? 'pending' : 'idle',
+  }, abort)
+
+  React.useEffect(() => {
+    if (!pokemonName) {
+      return;
+    }
+
+    run(fetchPokemon(pokemonName))
+  },[run, pokemonName])
 
   if (status === 'idle' || !pokemonName) {
     return 'Submit a pokemon'
@@ -86,14 +77,21 @@ function PokemonInfo({pokemonName}) {
   } else if (status === 'rejected') {
     throw error
   } else if (status === 'resolved') {
-    return <PokemonDataView pokemon={pokemon} />
+    return <PokemonDataView pokemon={data} />
   }
 
   throw new Error('This should be impossible')
 }
 
 function App() {
+  const [shouldAbort, setShouldAbort] = React.useState(false);
   const [pokemonName, setPokemonName] = React.useState('')
+
+  React.useEffect(() => {
+    return () => {
+      setShouldAbort(true);
+    }
+  }, [])
 
   function handleSubmit(newPokemonName) {
     setPokemonName(newPokemonName)
@@ -109,7 +107,7 @@ function App() {
       <hr />
       <div className="pokemon-info">
         <PokemonErrorBoundary onReset={handleReset} resetKeys={[pokemonName]}>
-          <PokemonInfo pokemonName={pokemonName} />
+          <PokemonInfo pokemonName={pokemonName} abort={shouldAbort}/>
         </PokemonErrorBoundary>
       </div>
     </div>
@@ -118,6 +116,8 @@ function App() {
 
 function AppWithUnmountCheckbox() {
   const [mountApp, setMountApp] = React.useState(true)
+
+
   return (
     <div>
       <label>
